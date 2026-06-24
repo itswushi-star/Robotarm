@@ -216,6 +216,44 @@ void setAllOutputs(bool enabled) {
     }
 }
 
+void performInitialCheckMotion() {
+    Serial.println("Performing a small safety movement before homing...");
+    const int deltaUs = 80;
+    int checkPose[NUM_JOINTS];
+    for (int i = 0; i < NUM_JOINTS; i++) {
+        int offset = (i % 2 == 0) ? deltaUs : -deltaUs;
+        checkPose[i] = clampJointPulse(i, joints[i].currentUs + offset);
+    }
+    moveToPose(checkPose);
+    delay(200);
+}
+
+bool askRobotConditionOk() {
+    while (true) {
+        Serial.println("Is the robot condition ok? Type y for yes or n for no.");
+        while (Serial.available() == 0) {
+            delay(50);
+            yield();
+        }
+
+        char c = Serial.read();
+        while (Serial.available() > 0) {
+            Serial.read();
+        }
+
+        if (c == 'y' || c == 'Y') {
+            Serial.println("Robot condition confirmed. Proceeding to homing.");
+            return true;
+        }
+        if (c == 'n' || c == 'N') {
+            Serial.println("Robot condition not ok. Please correct issues and type y when ready.");
+            continue;
+        }
+
+        Serial.println("Invalid input. Please type y or n.");
+    }
+}
+
 void saveRoutines() {
     preferences.putBytes("routines", routines, sizeof(routines));
 }
@@ -508,9 +546,12 @@ void setup() {
     pwm.setOscillatorFrequency(27000000);
     pwm.setPWMFreq(SERVO_FREQ);
 
-    // Complete the blocking clearance/elevation/alignment sequence before
-    // starting any interface that can accept commands.
-    performStartupHoming();
+    // Perform a small movement first so the operator can verify the arm is
+    // responsive before we do the full homing sequence.
+    performInitialCheckMotion();
+    if (askRobotConditionOk()) {
+        performStartupHoming();
+    }
 
     printStatus();
 }
